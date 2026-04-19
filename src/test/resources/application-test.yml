@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: false
+
+  # Disable mail autoconfiguration in tests
+  mail:
+    host: localhost
+    port: 3025
+
+jwt:
+  secret: dGVzdC1zZWNyZXQta2V5LWZvci10ZXhpZnktc2Fhcy1hcHBsaWNhdGlvbi10ZXN0aW5nLW9ubHk=
+  expiration: 3600000
+
+logging:
+  level:
+    com.texify: DEBUG
+    org.springframework.security: WARN

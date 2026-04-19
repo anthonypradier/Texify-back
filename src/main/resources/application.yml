@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: texify-backend
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:texify_db}?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # Mail — credentials supplied via environment variables when ready
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+server:
+  port: ${SERVER_PORT:9000}
+
+jwt:
+  secret: ${JWT_SECRET:1a32ffc225a46cbce28c06a1b4f1d3830962fe349fa5950e2f38a65056044b0f}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+
+logging:
+  level:
+    com.texify: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
