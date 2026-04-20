@@ -59,7 +59,7 @@ http://localhost:9000/api
 ---
 
 ### `POST /api/auth/register`
-Public. Creates a new account.
+Public. Creates a new account. The account starts **disabled** until the user verifies their email.
 
 **Body:**
 ```json
@@ -73,25 +73,43 @@ Public. Creates a new account.
 
 | Status | Meaning |
 |--------|---------|
-| `201 Created`    | Account created — returns `AuthResponse` |
-| `400 Bad Request`| Validation failure                       |
-| `409 Conflict`   | Email already in use                     |
+| `201 Created`    | Account created — verification email sent — returns `MessageResponse` |
+| `400 Bad Request`| Validation failure                                                     |
+| `409 Conflict`   | Email already in use                                                   |
 
-**`AuthResponse`:**
+**`MessageResponse`:**
 ```json
-{
-  "token":     "eyJhbGci...",
-  "email":     "alice@example.com",
-  "firstName": "Alice",
-  "lastName":  "Smith",
-  "role":      "ROLE_USER"
-}
+{ "message": "Verification email sent to alice@example.com. Please check your inbox." }
 ```
 
 ---
 
+### `GET /api/auth/verify?token=<uuid>`
+Public. Activates the account linked to the verification token.
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK`          | Account activated — returns `MessageResponse` |
+| `400 Bad Request` | Token unknown or expired                      |
+
+---
+
+### `POST /api/auth/resend-verification`
+Public. Re-sends a verification email. Always returns 200 to avoid leaking account existence.
+
+**Body:**
+```json
+{ "email": "alice@example.com" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK` | Generic confirmation — returns `MessageResponse` |
+
+---
+
 ### `POST /api/auth/login`
-Public. Authenticates an existing user.
+Public. Authenticates an existing **verified** user.
 
 **Body:**
 ```json
@@ -103,9 +121,10 @@ Public. Authenticates an existing user.
 
 | Status | Meaning |
 |--------|---------|
-| `200 OK`          | Login successful — returns `AuthResponse` |
-| `400 Bad Request` | Validation failure                        |
-| `401 Unauthorized`| Invalid email or password                 |
+| `200 OK`          | Login successful — returns `AuthResponse`      |
+| `400 Bad Request` | Validation failure                             |
+| `401 Unauthorized`| Invalid email or password                      |
+| `403 Forbidden`   | Account not yet verified (email not confirmed) |
 
 ---
 
@@ -191,12 +210,14 @@ src/
 │   │   ├── config/          # SecurityConfig
 │   │   ├── controller/      # AuthController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
-│   │   │                    #   UserResponse, ErrorResponse
-│   │   ├── entity/          # User, Role
-│   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException
-│   │   ├── repository/      # UserRepository
+│   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
+│   │   │                    #   ResendVerificationRequest
+│   │   ├── entity/          # User, Role, VerificationToken, TokenType
+│   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
+│   │   │                    #   InvalidVerificationTokenException
+│   │   ├── repository/      # UserRepository, VerificationTokenRepository
 │   │   ├── security/        # JwtService, JwtAuthenticationFilter
-│   │   └── service/         # AuthService, UserDetailsServiceImpl
+│   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -218,9 +239,44 @@ src/
 
 ---
 
+## Email Verification Flow
+
+Tokens are stored in a dedicated `verification_tokens` table (not in `users`), ce qui permet de gérer plusieurs types de tokens (EMAIL_VERIFICATION, PASSWORD_RESET) sans polluer la table principale.
+
+1. `POST /register` → compte créé avec `enabled=false`. Un `VerificationToken` (UUID, TTL 24 h) est inséré dans `verification_tokens`. Email envoyé.
+2. L'utilisateur clique sur le lien → le frontend appelle `GET /api/auth/verify?token=<uuid>`.
+3. Le backend vérifie : token connu + `used_at IS NULL` + non expiré → `used_at = now()`, `users.enabled = true`.
+4. L'utilisateur peut désormais appeler `POST /login`.
+
+**Schema `verification_tokens` :**
+```sql
+id         BIGINT PK AUTO_INCREMENT
+user_id    BIGINT FK → users.id ON DELETE CASCADE
+token      VARCHAR(255) UNIQUE NOT NULL
+type       ENUM('EMAIL_VERIFICATION','PASSWORD_RESET') NOT NULL
+expires_at DATETIME NOT NULL
+used_at    DATETIME NULL   -- null = pas encore consommé
+```
+
+**MailHog local setup:**
+```bash
+docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
+```
+UI available at `http://localhost:8025`. Default `application.yml` already points to `localhost:1025`.
+
+**Env vars for production SMTP:**
+```
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=...
+MAIL_PASSWORD=...
+```
+Set `mail.smtp.auth=true` and `mail.smtp.starttls.enable=true` via properties or override in `application.yml`.
+
+---
+
 ## Planned Features (not yet implemented)
 
-- Email address verification
 - Password reset via email
 - Stripe payment integration
 - Transactional emails (Spring Mail — dependency already present)

@@ -2,12 +2,17 @@ package com.texify.backend.service;
 
 import com.texify.backend.dto.AuthResponse;
 import com.texify.backend.dto.LoginRequest;
+import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
 import com.texify.backend.dto.UserResponse;
 import com.texify.backend.entity.Role;
+import com.texify.backend.entity.TokenType;
 import com.texify.backend.entity.User;
+import com.texify.backend.entity.VerificationToken;
 import com.texify.backend.exception.EmailAlreadyExistsException;
+import com.texify.backend.exception.InvalidVerificationTokenException;
 import com.texify.backend.repository.UserRepository;
+import com.texify.backend.repository.VerificationTokenRepository;
 import com.texify.backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,38 +25,31 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Business logic for user authentication: registration, login, logout,
- * and current-user retrieval.
- * <p>
- * Credential verification is delegated to Spring Security's
- * {@link AuthenticationManager}; token lifecycle is managed by {@link JwtService}.
- * </p>
- */
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final VerificationTokenRepository verificationTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final UserDetailsService userDetailsService;
+    private final EmailService emailService;
 
     /**
-     * Creates a new user account and returns a JWT for immediate use.
-     * <p>
-     * The plain-text password is BCrypt-hashed before persistence. Every new
-     * account is assigned {@link Role#ROLE_USER} and starts enabled.
-     * </p>
+     * Creates a new disabled account and sends a verification email.
      *
-     * @param request the registration payload (email, password, first/last name)
-     * @return an {@link AuthResponse} containing the JWT and basic user info
+     * @param request the registration payload
+     * @return a {@link MessageResponse} asking the user to check their inbox
      * @throws EmailAlreadyExistsException if the email is already in use
      */
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public MessageResponse register(RegisterRequest request) {
         log.info("Registration attempt for '{}'", request.getEmail());
 
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -64,28 +62,77 @@ public class AuthService {
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .role(Role.ROLE_USER)
-                .enabled(true)
+                .enabled(false)
                 .build();
 
         userRepository.save(user);
-        log.info("Account created for '{}' (id={})", user.getEmail(), user.getId());
+        log.info("Account created for '{}' — email verification pending", user.getEmail());
 
-        UserDetails principal = userDetailsService.loadUserByUsername(user.getEmail());
-        String token = jwtService.generateToken(principal);
-        return toAuthResponse(token, user);
+        issueVerificationToken(user);
+        return new MessageResponse(
+                "Verification email sent to " + user.getEmail() + ". Please check your inbox.");
     }
 
     /**
-     * Authenticates an existing user and issues a fresh JWT.
-     * <p>
-     * Delegates credential verification to the {@link AuthenticationManager},
-     * which runs the BCrypt comparison internally via
-     * {@link UserDetailsServiceImpl}. A
-     * {@link org.springframework.security.authentication.BadCredentialsException}
-     * is thrown on failure and mapped to 401 by the global exception handler.
-     * </p>
+     * Activates an account using the token received by email.
      *
-     * @param request the login payload (email + plain-text password)
+     * @param rawToken the UUID token from the verification link
+     * @return a {@link MessageResponse} confirming activation
+     * @throws InvalidVerificationTokenException if the token is unknown, already used, or expired
+     */
+    @Transactional
+    public MessageResponse verifyEmail(String rawToken) {
+        VerificationToken vt = verificationTokenRepository.findByToken(rawToken)
+                .orElseThrow(() -> new InvalidVerificationTokenException(
+                        "Invalid or expired verification token."));
+
+        if (vt.getUsedAt() != null) {
+            throw new InvalidVerificationTokenException(
+                    "This verification link has already been used.");
+        }
+
+        if (vt.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new InvalidVerificationTokenException(
+                    "Verification token has expired. Please request a new one.");
+        }
+
+        vt.setUsedAt(LocalDateTime.now());
+        verificationTokenRepository.save(vt);
+
+        User user = vt.getUser();
+        user.setEnabled(true);
+        userRepository.save(user);
+        log.info("Email verified for '{}'", user.getEmail());
+
+        return new MessageResponse("Email verified successfully. You can now log in.");
+    }
+
+    /**
+     * Re-sends a verification email.
+     * Always returns 200 regardless of whether the email exists to avoid leaking account info.
+     *
+     * @param email the address to send a new token to
+     * @return a generic {@link MessageResponse}
+     */
+    @Transactional
+    public MessageResponse resendVerification(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            if (!user.isEnabled()) {
+                verificationTokenRepository.deleteByUserAndType(user, TokenType.EMAIL_VERIFICATION);
+                issueVerificationToken(user);
+                log.info("Verification email resent to '{}'", email);
+            }
+        });
+        return new MessageResponse(
+                "If an account exists for " + email + ", a new verification email has been sent.");
+    }
+
+    /**
+     * Authenticates an existing verified user and issues a fresh JWT.
+     * Throws {@link org.springframework.security.authentication.DisabledException}
+     * (mapped to 403) if the account is not yet verified.
+     *
+     * @param request the login payload
      * @return an {@link AuthResponse} containing the JWT and basic user info
      */
     public AuthResponse login(LoginRequest request) {
@@ -107,10 +154,6 @@ public class AuthService {
 
     /**
      * Revokes the JWT extracted from the {@code Authorization} header.
-     * <p>
-     * The token is added to an in-memory blacklist; the client must also
-     * discard its local copy.
-     * </p>
      *
      * @param authorizationHeader the full {@code Authorization: Bearer <token>} header value
      */
@@ -126,14 +169,9 @@ public class AuthService {
 
     /**
      * Returns the profile of the currently authenticated user.
-     * <p>
-     * Requires a fresh DB lookup because the security context only holds the
-     * email (Spring Security's "username"), not the full entity.
-     * </p>
      *
      * @param email the email extracted from the security context principal
      * @return a {@link UserResponse} with the user's public profile fields
-     * @throws UsernameNotFoundException if no account exists for the given email
      */
     public UserResponse getCurrentUser(String email) {
         log.debug("Fetching profile for '{}'", email);
@@ -142,13 +180,19 @@ public class AuthService {
         return toUserResponse(user);
     }
 
-    /**
-     * Maps a JWT and a {@link User} entity to an {@link AuthResponse}.
-     *
-     * @param token the signed JWT
-     * @param user  the authenticated or newly created user
-     * @return the assembled response DTO
-     */
+    /** Creates a VerificationToken, persists it, and sends the email. */
+    private void issueVerificationToken(User user) {
+        VerificationToken vt = VerificationToken.builder()
+                .user(user)
+                .token(UUID.randomUUID().toString())
+                .type(TokenType.EMAIL_VERIFICATION)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+
+        verificationTokenRepository.save(vt);
+        emailService.sendVerificationEmail(user.getEmail(), vt.getToken());
+    }
+
     private AuthResponse toAuthResponse(String token, User user) {
         return new AuthResponse(
                 token,
@@ -159,12 +203,6 @@ public class AuthService {
         );
     }
 
-    /**
-     * Maps a {@link User} entity to a {@link UserResponse}.
-     *
-     * @param user the entity to convert
-     * @return the public-facing user DTO
-     */
     private UserResponse toUserResponse(User user) {
         return new UserResponse(
                 user.getId(),

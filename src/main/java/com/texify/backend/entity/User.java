@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+
 /**
  * JPA entity representing a Texify user.
  * <p>
@@ -52,12 +53,11 @@ public class User {
 
     /**
      * Whether the account is active.
-     * Setting this to {@code false} prevents the user from authenticating
-     * even with correct credentials.
+     * Remains {@code false} until the user verifies their email address.
      */
     @Column(nullable = false)
     @Builder.Default
-    private boolean enabled = true;
+    private boolean enabled = false;
 
     /** Set once on first INSERT, never updated afterwards. */
     @Column(name = "created_at", nullable = false, updatable = false)
