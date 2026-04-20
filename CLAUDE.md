@@ -53,7 +53,7 @@ The API is **stateless** — no HTTP sessions. Authentication uses JWT.
 
 ### Base URL
 ```
-http://localhost:8080/api
+http://localhost:9000/api
 ```
 
 ---
