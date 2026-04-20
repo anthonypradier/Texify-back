@@ -2,7 +2,9 @@ package com.texify.backend.controller;
 
 import com.texify.backend.dto.AuthResponse;
 import com.texify.backend.dto.LoginRequest;
+import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
+import com.texify.backend.dto.ResendVerificationRequest;
 import com.texify.backend.dto.UserResponse;
 import com.texify.backend.service.AuthService;
 import jakarta.validation.Valid;
@@ -14,14 +16,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * REST controller exposing authentication endpoints.
- * <p>
- * All routes are prefixed with {@code /api/auth}.
- * {@code /register} and {@code /login} are public. All other routes require
- * a valid {@code Authorization: Bearer <token>} header.
- * </p>
- */
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -31,22 +25,49 @@ public class AuthController {
     private final AuthService authService;
 
     /**
-     * Creates a new user account and returns a JWT ready for immediate use.
+     * Creates a new user account and sends a verification email.
+     * The account is inactive until the user verifies their address.
      *
      * @param request validated registration payload
-     * @return 201 Created with an {@link AuthResponse} body
+     * @return 201 Created with a {@link MessageResponse}
      */
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<MessageResponse> register(@Valid @RequestBody RegisterRequest request) {
         log.debug("POST /api/auth/register — email '{}'", request.getEmail());
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    }
+
+    /**
+     * Activates an account using the token received by email.
+     *
+     * @param token the UUID verification token (query param)
+     * @return 200 OK with a {@link MessageResponse}
+     */
+    @GetMapping("/verify")
+    public ResponseEntity<MessageResponse> verify(@RequestParam String token) {
+        log.debug("GET /api/auth/verify");
+        return ResponseEntity.ok(authService.verifyEmail(token));
+    }
+
+    /**
+     * Re-sends a verification email to the given address.
+     * Always returns 200 to avoid leaking whether the email exists.
+     *
+     * @param request payload containing the email address
+     * @return 200 OK with a generic {@link MessageResponse}
+     */
+    @PostMapping("/resend-verification")
+    public ResponseEntity<MessageResponse> resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request) {
+        log.debug("POST /api/auth/resend-verification — email '{}'", request.getEmail());
+        return ResponseEntity.ok(authService.resendVerification(request.getEmail()));
     }
 
     /**
      * Authenticates an existing user and returns a fresh JWT.
      *
      * @param request validated login payload
-     * @return 200 OK with an {@link AuthResponse} body
+     * @return 200 OK with an {@link AuthResponse}
      */
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
@@ -56,14 +77,9 @@ public class AuthController {
 
     /**
      * Revokes the current JWT server-side and signals the client to discard it.
-     * <p>
-     * Requires a valid JWT in the {@code Authorization} header.
-     * After a successful {@code 204} response, the client must delete its
-     * local copy of the token.
-     * </p>
      *
      * @param authorizationHeader the full {@code Authorization: Bearer <token>} header value
-     * @return 204 No Content on success
+     * @return 204 No Content
      */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
@@ -75,14 +91,9 @@ public class AuthController {
 
     /**
      * Returns the profile of the currently authenticated user.
-     * <p>
-     * Spring Security injects the {@link UserDetails} principal from the
-     * security context via {@code @AuthenticationPrincipal}. The email
-     * (username) is used to load the full profile from the database.
-     * </p>
      *
      * @param userDetails the principal injected by Spring Security
-     * @return 200 OK with a {@link UserResponse} body (no password field)
+     * @return 200 OK with a {@link UserResponse}
      */
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me(@AuthenticationPrincipal UserDetails userDetails) {
