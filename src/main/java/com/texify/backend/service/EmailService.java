@@ -22,6 +22,31 @@ public class EmailService {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
+    public void sendPasswordResetEmail(String to, String token) {
+        String link = frontendUrl + "/reset-password?token=" + token;
+        String html = """
+                <p>Hello,</p>
+                <p>We received a request to reset your Texify password. Click the link below to choose a new one:</p>
+                <p><a href="%s">Reset my password</a></p>
+                <p>This link expires in 1 hour.</p>
+                <p>If you did not request a password reset, you can safely ignore this email.</p>
+                """.formatted(link);
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+            helper.setTo(to);
+            helper.setFrom(from);
+            helper.setSubject("Reset your Texify password");
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("Password reset email sent to '{}'", to);
+        } catch (MessagingException e) {
+            log.error("Failed to send password reset email to '{}'", to, e);
+            throw new RuntimeException("Failed to send password reset email", e);
+        }
+    }
+
     public void sendVerificationEmail(String to, String token) {
         String link = frontendUrl + "/verify-email?token=" + token;
         String html = """

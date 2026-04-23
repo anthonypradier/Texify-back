@@ -4,6 +4,7 @@ import com.texify.backend.dto.AuthResponse;
 import com.texify.backend.dto.LoginRequest;
 import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
+import com.texify.backend.dto.ResetPasswordRequest;
 import com.texify.backend.dto.UserResponse;
 import com.texify.backend.entity.Role;
 import com.texify.backend.entity.TokenType;
@@ -310,6 +311,149 @@ class AuthServiceTest {
     void logout_noBearerPrefix_doesNothing() {
         authService.logout("Basic dXNlcjpwYXNz");
         verify(jwtService, never()).revoke(anyString());
+    }
+
+    // ── forgotPassword ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("forgotPassword: deletes old tokens, creates new one and sends email for existing user")
+    void forgotPassword_existingUser_sendsEmail() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(verifiedUser));
+
+        MessageResponse response = authService.forgotPassword("alice@example.com");
+
+        assertThat(response.message()).isNotBlank();
+        verify(verificationTokenRepository).deleteByUserAndType(verifiedUser, TokenType.PASSWORD_RESET);
+        verify(verificationTokenRepository).save(any(VerificationToken.class));
+        verify(emailService).sendPasswordResetEmail(eq("alice@example.com"), anyString());
+    }
+
+    @Test
+    @DisplayName("forgotPassword: returns generic message for unknown email without sending email")
+    void forgotPassword_unknownEmail_returnsGenericMessage() {
+        when(userRepository.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
+
+        MessageResponse response = authService.forgotPassword("unknown@example.com");
+
+        assertThat(response.message()).isNotBlank();
+        verify(emailService, never()).sendPasswordResetEmail(any(), any());
+    }
+
+    @Test
+    @DisplayName("forgotPassword: persisted token has type PASSWORD_RESET and 1h expiry")
+    void forgotPassword_createsTokenWithCorrectTypeAndExpiry() {
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(verifiedUser));
+
+        authService.forgotPassword("alice@example.com");
+
+        ArgumentCaptor<VerificationToken> captor = ArgumentCaptor.forClass(VerificationToken.class);
+        verify(verificationTokenRepository).save(captor.capture());
+        VerificationToken vt = captor.getValue();
+
+        assertThat(vt.getType()).isEqualTo(TokenType.PASSWORD_RESET);
+        assertThat(vt.getToken()).isNotBlank();
+        assertThat(vt.getExpiresAt()).isAfter(LocalDateTime.now());
+        assertThat(vt.getUsedAt()).isNull();
+    }
+
+    // ── resetPassword ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("resetPassword: updates password and marks token as used on valid token")
+    void resetPassword_validToken_updatesPassword() {
+        VerificationToken vt = VerificationToken.builder()
+                .id(1L).user(verifiedUser).token("reset-token")
+                .type(TokenType.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().plusMinutes(30))
+                .build();
+
+        when(verificationTokenRepository.findByToken("reset-token")).thenReturn(Optional.of(vt));
+        when(passwordEncoder.encode("newpassword")).thenReturn("$2a$10$newHashed");
+        when(verificationTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("reset-token");
+        request.setNewPassword("newpassword");
+
+        MessageResponse response = authService.resetPassword(request);
+
+        assertThat(response.message()).containsIgnoringCase("reset");
+        assertThat(vt.getUsedAt()).isNotNull();
+        assertThat(verifiedUser.getPassword()).isEqualTo("$2a$10$newHashed");
+    }
+
+    @Test
+    @DisplayName("resetPassword: throws when token is unknown")
+    void resetPassword_unknownToken_throws() {
+        when(verificationTokenRepository.findByToken("bad-token")).thenReturn(Optional.empty());
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("bad-token");
+        request.setNewPassword("newpassword");
+
+        assertThatThrownBy(() -> authService.resetPassword(request))
+                .isInstanceOf(InvalidVerificationTokenException.class);
+    }
+
+    @Test
+    @DisplayName("resetPassword: throws when token type is wrong")
+    void resetPassword_wrongTokenType_throws() {
+        VerificationToken vt = VerificationToken.builder()
+                .id(1L).user(verifiedUser).token("email-token")
+                .type(TokenType.EMAIL_VERIFICATION)
+                .expiresAt(LocalDateTime.now().plusHours(1))
+                .build();
+
+        when(verificationTokenRepository.findByToken("email-token")).thenReturn(Optional.of(vt));
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("email-token");
+        request.setNewPassword("newpassword");
+
+        assertThatThrownBy(() -> authService.resetPassword(request))
+                .isInstanceOf(InvalidVerificationTokenException.class);
+    }
+
+    @Test
+    @DisplayName("resetPassword: throws when token is already used")
+    void resetPassword_alreadyUsed_throws() {
+        VerificationToken vt = VerificationToken.builder()
+                .id(1L).user(verifiedUser).token("used-token")
+                .type(TokenType.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().plusMinutes(30))
+                .usedAt(LocalDateTime.now().minusMinutes(5))
+                .build();
+
+        when(verificationTokenRepository.findByToken("used-token")).thenReturn(Optional.of(vt));
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("used-token");
+        request.setNewPassword("newpassword");
+
+        assertThatThrownBy(() -> authService.resetPassword(request))
+                .isInstanceOf(InvalidVerificationTokenException.class)
+                .hasMessageContaining("already been used");
+    }
+
+    @Test
+    @DisplayName("resetPassword: throws when token is expired")
+    void resetPassword_expiredToken_throws() {
+        VerificationToken vt = VerificationToken.builder()
+                .id(1L).user(verifiedUser).token("expired-token")
+                .type(TokenType.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().minusMinutes(1))
+                .build();
+
+        when(verificationTokenRepository.findByToken("expired-token")).thenReturn(Optional.of(vt));
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setToken("expired-token");
+        request.setNewPassword("newpassword");
+
+        assertThatThrownBy(() -> authService.resetPassword(request))
+                .isInstanceOf(InvalidVerificationTokenException.class)
+                .hasMessageContaining("expired");
     }
 
     // ── getCurrentUser ───────────────────────────────────────────────────────

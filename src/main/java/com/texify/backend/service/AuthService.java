@@ -4,6 +4,7 @@ import com.texify.backend.dto.AuthResponse;
 import com.texify.backend.dto.LoginRequest;
 import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
+import com.texify.backend.dto.ResetPasswordRequest;
 import com.texify.backend.dto.UserResponse;
 import com.texify.backend.entity.Role;
 import com.texify.backend.entity.TokenType;
@@ -180,6 +181,63 @@ public class AuthService {
         return toUserResponse(user);
     }
 
+    /**
+     * Sends a password reset email.
+     * Always returns 200 regardless of whether the email exists to avoid leaking account info.
+     *
+     * @param email the address to send a reset link to
+     * @return a generic {@link MessageResponse}
+     */
+    @Transactional
+    public MessageResponse forgotPassword(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            verificationTokenRepository.deleteByUserAndType(user, TokenType.PASSWORD_RESET);
+            issuePasswordResetToken(user);
+            log.info("Password reset email sent to '{}'", email);
+        });
+        return new MessageResponse(
+                "If an account exists for " + email + ", a password reset link has been sent.");
+    }
+
+    /**
+     * Resets the user's password using a valid reset token.
+     * Can be called from any context (login page, account settings, etc.).
+     *
+     * @param request payload containing the reset token and the new password
+     * @return a {@link MessageResponse} confirming the reset
+     * @throws InvalidVerificationTokenException if the token is unknown, already used, or expired
+     */
+    @Transactional
+    public MessageResponse resetPassword(ResetPasswordRequest request) {
+        VerificationToken vt = verificationTokenRepository.findByToken(request.getToken())
+                .orElseThrow(() -> new InvalidVerificationTokenException(
+                        "Invalid or expired password reset token."));
+
+        if (vt.getType() != TokenType.PASSWORD_RESET) {
+            throw new InvalidVerificationTokenException("Invalid or expired password reset token.");
+        }
+
+        if (vt.getUsedAt() != null) {
+            throw new InvalidVerificationTokenException(
+                    "This password reset link has already been used.");
+        }
+
+        if (vt.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new InvalidVerificationTokenException(
+                    "Password reset token has expired. Please request a new one.");
+        }
+
+        vt.setUsedAt(LocalDateTime.now());
+        verificationTokenRepository.save(vt);
+
+        User user = vt.getUser();
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        log.info("Password reset successfully for '{}'", user.getEmail());
+
+        return new MessageResponse("Your password has been reset successfully. You can now log in.");
+    }
+
     /** Creates a VerificationToken, persists it, and sends the email. */
     private void issueVerificationToken(User user) {
         VerificationToken vt = VerificationToken.builder()
@@ -191,6 +249,18 @@ public class AuthService {
 
         verificationTokenRepository.save(vt);
         emailService.sendVerificationEmail(user.getEmail(), vt.getToken());
+    }
+
+    private void issuePasswordResetToken(User user) {
+        VerificationToken vt = VerificationToken.builder()
+                .user(user)
+                .token(UUID.randomUUID().toString())
+                .type(TokenType.PASSWORD_RESET)
+                .expiresAt(LocalDateTime.now().plusHours(1))
+                .build();
+
+        verificationTokenRepository.save(vt);
+        emailService.sendPasswordResetEmail(user.getEmail(), vt.getToken());
     }
 
     private AuthResponse toAuthResponse(String token, User user) {
