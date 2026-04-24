@@ -17,13 +17,14 @@
 
 ## Running Locally
 
-1. Copy `.env` and fill in your values (it is git-ignored).
-2. Export the variables before starting the app:
+1. Copy `src/main/resources/application-local.yml.example` (if it exists) or create
+   `src/main/resources/application-local.yml` — it is git-ignored.
+   Fill in your local credentials (DB, OAuth2, SMTP, JWT secret, etc.).
+2. Start the app with the `local` profile:
    ```bash
-   export $(grep -v '^#' .env | xargs)
-   ./mvnw spring-boot:run
+   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
    ```
-   Or configure your IDE to load `.env` as environment variables for the run configuration.
+   Or in your IDE, set the active profile to `local` in the run configuration.
 3. MySQL must be running on port **3306** with a `texify_db` database
    (`createDatabaseIfNotExist=true` is set in the JDBC URL as a fallback).
 4. Run tests — no MySQL or SMTP required (H2 in-memory, mail mocked):
@@ -46,6 +47,33 @@ The API is **stateless** — no HTTP sessions. Authentication uses JWT.
 - Token TTL: **24 hours** (override via `JWT_EXPIRATION` env var).
 - Logout revokes the token server-side (in-memory blacklist) **and** the client
   must discard its local copy.
+
+### OAuth2 (Google & GitHub)
+
+Spring Security handles the OAuth2 redirect flow. Two endpoints are public in `SecurityConfig`:
+
+| Endpoint | Role |
+|---|---|
+| `GET /api/auth/oauth2/authorize/{provider}` | Initiates the redirect to Google or GitHub |
+| `GET /login/oauth2/code/{provider}` | Callback URL — Spring processes the provider response |
+
+Flow:
+1. Frontend redirects the user to `/api/auth/oauth2/authorize/google` (or `github`).
+2. Spring redirects to the provider. The pending request is stored in a short-lived cookie (`oauth2_auth_request`, 3 min TTL) by `HttpCookieOAuth2AuthorizationRequestRepository` — keeps the API stateless.
+3. Provider redirects back to `/login/oauth2/code/{provider}`.
+4. `OAuth2AuthenticationSuccessHandler` calls `OAuth2UserService.processOAuth2User()` — finds or creates the account (always `enabled=true`, no email verification needed), then generates a JWT and redirects to `{app.frontend-url}/oauth2/callback?token=<jwt>`.
+5. On failure, `OAuth2AuthenticationFailureHandler` redirects to `{app.frontend-url}/login?error=oauth2_failed`.
+
+**Env vars required:**
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+APP_FRONTEND_URL=http://localhost:5173
+```
+
+`User.authProvider` (enum `AuthProvider`: `LOCAL`, `GOOGLE`, `GITHUB`) tracks which provider created the account.
 
 ---
 
@@ -246,12 +274,16 @@ src/
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
 │   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
 │   │   │                    #   ResetPasswordRequest
-│   │   ├── entity/          # User, Role, VerificationToken, TokenType
+│   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
 │   │   │                    #   InvalidVerificationTokenException
 │   │   ├── repository/      # UserRepository, VerificationTokenRepository
-│   │   ├── security/        # JwtService, JwtAuthenticationFilter
-│   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService
+│   │   ├── security/        # JwtService, JwtAuthenticationFilter,
+│   │   │                    #   OAuth2AuthenticationSuccessHandler,
+│   │   │                    #   OAuth2AuthenticationFailureHandler,
+│   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
+│   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
+│   │                        #   OAuth2UserService
 │   └── resources/
 │       └── application.yml
 └── test/

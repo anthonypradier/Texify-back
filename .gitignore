@@ -6,6 +6,7 @@ target/
 
 # ── Environment & secrets ────────────────────────────────────────────────────
 .env
+**/application-local.yml
 *.pem
 *.key
 CLAUDE.md

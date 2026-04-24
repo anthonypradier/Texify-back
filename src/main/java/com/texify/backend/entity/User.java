@@ -33,8 +33,8 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
-    /** BCrypt-hashed password. Never stored in plain text. */
-    @Column(nullable = false)
+    /** BCrypt-hashed password. Null for OAuth2-only accounts (GOOGLE, GITHUB). */
+    @Column
     private String password;
 
     @Column(name = "first_name", nullable = false)
@@ -51,9 +51,16 @@ public class User {
     @Column(nullable = false)
     private Role role;
 
+    /** How the account was originally created. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_provider", nullable = false)
+    @Builder.Default
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
     /**
      * Whether the account is active.
      * Remains {@code false} until the user verifies their email address.
+     * OAuth2 accounts are enabled immediately (provider already verified the email).
      */
     @Column(nullable = false)
     @Builder.Default

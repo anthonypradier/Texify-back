@@ -10,11 +10,24 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: email, profile
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope: read:user, user:email
 
   # Mail — defaults point to MailHog (local dev). Override via env vars for prod.
   mail:
@@ -34,7 +47,7 @@ texify:
     from: ${MAIL_FROM:contact.papistudio@gmail.com}
 
 jwt:
-  secret: ${JWT_SECRET:1a32ffc225a46cbce28c06a1b4f1d3830962fe349fa5950e2f38a65056044b0f}
+  secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:86400000}
 
 app:

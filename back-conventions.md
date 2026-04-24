@@ -123,6 +123,7 @@ Bean Validation (`jakarta.validation`) on request DTOs. Always annotate the cont
 - Apply `@Transactional` on methods that perform multiple database operations in a single request.
 - Always return `ResponseEntity<T>` from controllers with the correct HTTP status code.
 - Validate inputs at the boundary (controller) — do not re-validate in the service.
+- Respect all the RGPD rules
 
 ---
 
@@ -141,6 +142,8 @@ Bean Validation (`jakarta.validation`) on request DTOs. Always annotate the cont
 - **Do not use `@MockBean`** (Spring Boot 3) — use `@MockitoBean` (Spring Boot 4).
 - **Do not import `com.fasterxml.jackson`** directly — use `tools.jackson` (Jackson 3).
 - **Do not use `@AutoConfigureMockMvc` from `o.s.boot.test.autoconfigure`** — import from `o.s.boot.webmvc.test.autoconfigure` (Spring Boot 4).
+- **Never modifying files without my validation**
+- **Not respecting RGPD rules**
 
 ---
 
