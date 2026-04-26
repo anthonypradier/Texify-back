@@ -1,10 +1,12 @@
 package com.texify.backend.controller;
 
 import com.texify.backend.dto.AuthResponse;
+import com.texify.backend.dto.ForgotPasswordRequest;
 import com.texify.backend.dto.LoginRequest;
 import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
 import com.texify.backend.dto.ResendVerificationRequest;
+import com.texify.backend.dto.ResetPasswordRequest;
 import com.texify.backend.dto.UserResponse;
 import com.texify.backend.service.AuthService;
 import jakarta.validation.Valid;
@@ -61,6 +63,33 @@ public class AuthController {
             @Valid @RequestBody ResendVerificationRequest request) {
         log.debug("POST /api/auth/resend-verification — email '{}'", request.getEmail());
         return ResponseEntity.ok(authService.resendVerification(request.getEmail()));
+    }
+
+    /**
+     * Sends a password reset email.
+     * Always returns 200 to avoid leaking whether the account exists.
+     *
+     * @param request payload containing the email address
+     * @return 200 OK with a generic {@link MessageResponse}
+     */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<MessageResponse> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request) {
+        log.debug("POST /api/auth/forgot-password — email '{}'", request.getEmail());
+        return ResponseEntity.ok(authService.forgotPassword(request.getEmail()));
+    }
+
+    /**
+     * Resets the user's password using a valid reset token.
+     *
+     * @param request payload containing the reset token and the new password
+     * @return 200 OK with a {@link MessageResponse}
+     */
+    @PostMapping("/reset-password")
+    public ResponseEntity<MessageResponse> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request) {
+        log.debug("POST /api/auth/reset-password");
+        return ResponseEntity.ok(authService.resetPassword(request));
     }
 
     /**

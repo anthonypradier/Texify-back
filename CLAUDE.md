@@ -108,6 +108,39 @@ Public. Re-sends a verification email. Always returns 200 to avoid leaking accou
 
 ---
 
+### `POST /api/auth/forgot-password`
+Public. Sends a password reset email. Always returns 200 to avoid leaking account existence.
+
+**Body:**
+```json
+{ "email": "alice@example.com" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK`          | Generic confirmation — returns `MessageResponse` |
+| `400 Bad Request` | Validation failure (invalid email format)        |
+
+---
+
+### `POST /api/auth/reset-password`
+Public. Resets the user's password using a valid reset token. Callable from any context (login page, account settings, etc.).
+
+**Body:**
+```json
+{
+  "token":       "<uuid-from-email>",
+  "newPassword": "newsecret123"
+}
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200 OK`          | Password updated — returns `MessageResponse`      |
+| `400 Bad Request` | Token invalid / expired / already used, or password too short |
+
+---
+
 ### `POST /api/auth/login`
 Public. Authenticates an existing **verified** user.
 
@@ -211,7 +244,8 @@ src/
 │   │   ├── controller/      # AuthController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
-│   │   │                    #   ResendVerificationRequest
+│   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
+│   │   │                    #   ResetPasswordRequest
 │   │   ├── entity/          # User, Role, VerificationToken, TokenType
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
 │   │   │                    #   InvalidVerificationTokenException
@@ -241,12 +275,23 @@ src/
 
 ## Email Verification Flow
 
-Tokens are stored in a dedicated `verification_tokens` table (not in `users`), ce qui permet de gérer plusieurs types de tokens (EMAIL_VERIFICATION, PASSWORD_RESET) sans polluer la table principale.
+Tokens are stored in a dedicated `verification_tokens` table (not in `users`), which allows multiple token types (EMAIL_VERIFICATION, PASSWORD_RESET) without polluting the main table.
 
-1. `POST /register` → compte créé avec `enabled=false`. Un `VerificationToken` (UUID, TTL 24 h) est inséré dans `verification_tokens`. Email envoyé.
-2. L'utilisateur clique sur le lien → le frontend appelle `GET /api/auth/verify?token=<uuid>`.
-3. Le backend vérifie : token connu + `used_at IS NULL` + non expiré → `used_at = now()`, `users.enabled = true`.
-4. L'utilisateur peut désormais appeler `POST /login`.
+1. `POST /register` → account created with `enabled=false`. A `VerificationToken` (UUID, TTL 24 h) is inserted into `verification_tokens`. Email sent.
+2. User clicks the link → frontend calls `GET /api/auth/verify?token=<uuid>`.
+3. Backend checks: token known + `used_at IS NULL` + not expired → `used_at = now()`, `users.enabled = true`.
+4. User can now call `POST /login`.
+
+---
+
+## Password Reset Flow
+
+1. `POST /forgot-password` → any existing `PASSWORD_RESET` token for the user is deleted. A new `VerificationToken` (UUID, TTL **1 hour**) is inserted. Email sent. Always returns 200.
+2. User clicks the link → frontend calls `POST /reset-password` with the token and new password.
+3. Backend checks: token known + type == `PASSWORD_RESET` + `used_at IS NULL` + not expired → `used_at = now()`, password re-hashed and saved.
+4. User can now log in with the new password.
+
+The `resetPassword` service method is context-agnostic — it can be called from the login page, account settings, or any future surface.
 
 **Schema `verification_tokens` :**
 ```sql
@@ -277,7 +322,5 @@ Set `mail.smtp.auth=true` and `mail.smtp.starttls.enable=true` via properties or
 
 ## Planned Features (not yet implemented)
 
-- Password reset via email
 - Stripe payment integration
-- Transactional emails (Spring Mail — dependency already present)
 - Document CRUD (core SaaS feature)
