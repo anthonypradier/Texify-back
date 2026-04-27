@@ -6,9 +6,11 @@ target/
 
 # ── Environment & secrets ────────────────────────────────────────────────────
 .env
+src/main/resources/application-local.yml
 *.pem
 *.key
 CLAUDE.md
+back-convention.md
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
 logs/
