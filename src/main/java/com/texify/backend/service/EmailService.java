@@ -47,6 +47,29 @@ public class EmailService {
         }
     }
 
+    public void sendOAuth2WelcomeEmail(String to, String firstName, String providerName) {
+        String html = """
+                <p>Bonjour %s,</p>
+                <p>Votre compte Texify a été créé avec succès via %s.</p>
+                <p>Vous pouvez désormais vous connecter à tout moment en utilisant votre compte %s.</p>
+                <p>Si vous n'êtes pas à l'origine de cette inscription, contactez-nous immédiatement.</p>
+                """.formatted(firstName, providerName, providerName);
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+            helper.setTo(to);
+            helper.setFrom(from);
+            helper.setSubject("Bienvenue sur Texify !");
+            helper.setText(html, true);
+            mailSender.send(message);
+            log.info("OAuth2 welcome email sent to '{}'", to);
+        } catch (MessagingException e) {
+            log.error("Failed to send OAuth2 welcome email to '{}'", to, e);
+            throw new RuntimeException("Failed to send OAuth2 welcome email", e);
+        }
+    }
+
     public void sendVerificationEmail(String to, String token) {
         String link = frontendUrl + "/verify-email?token=" + token;
         String html = """

@@ -54,6 +54,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid email or password");
     }
 
+    @ExceptionHandler(OAuth2AccountException.class)
+    public ResponseEntity<ErrorResponse> handleOAuth2Account(OAuth2AccountException ex) {
+        log.warn("Password login attempted on OAuth2 account: {}", ex.getMessage());
+        return build(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage());
+    }
+
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ErrorResponse> handleDisabled(DisabledException ex) {
         log.warn("Login attempt on unverified account");

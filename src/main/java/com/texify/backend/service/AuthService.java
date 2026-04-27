@@ -6,12 +6,14 @@ import com.texify.backend.dto.MessageResponse;
 import com.texify.backend.dto.RegisterRequest;
 import com.texify.backend.dto.ResetPasswordRequest;
 import com.texify.backend.dto.UserResponse;
+import com.texify.backend.entity.AuthProvider;
 import com.texify.backend.entity.Role;
 import com.texify.backend.entity.TokenType;
 import com.texify.backend.entity.User;
 import com.texify.backend.entity.VerificationToken;
 import com.texify.backend.exception.EmailAlreadyExistsException;
 import com.texify.backend.exception.InvalidVerificationTokenException;
+import com.texify.backend.exception.OAuth2AccountException;
 import com.texify.backend.repository.UserRepository;
 import com.texify.backend.repository.VerificationTokenRepository;
 import com.texify.backend.security.JwtService;
@@ -138,6 +140,12 @@ public class AuthService {
      */
     public AuthResponse login(LoginRequest request) {
         log.info("Login attempt for '{}'", request.getEmail());
+
+        userRepository.findByEmail(request.getEmail()).ifPresent(user -> {
+            if (user.getAuthProvider() != AuthProvider.LOCAL) {
+                throw new OAuth2AccountException(user.getAuthProvider().name());
+            }
+        });
 
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
