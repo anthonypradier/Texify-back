@@ -74,6 +74,18 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage());
     }
 
+    @ExceptionHandler(DocumentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleDocumentNotFound(DocumentNotFoundException ex) {
+        log.warn("Document not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
+    }
+
+    @ExceptionHandler(LabelNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleLabelNotFound(LabelNotFoundException ex) {
+        log.warn("Label not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
+    }
+
     /**
      * Handles the case where no account exists for a given email.
      *
