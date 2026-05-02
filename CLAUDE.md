@@ -269,21 +269,26 @@ src/
 ├── main/
 │   ├── java/com/texify/backend/
 │   │   ├── config/          # SecurityConfig
-│   │   ├── controller/      # AuthController
+│   │   ├── controller/      # AuthController, DocumentController, LabelController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
 │   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
-│   │   │                    #   ResetPasswordRequest
-│   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType
+│   │   │                    #   ResetPasswordRequest,
+│   │   │                    #   CreateDocumentRequest, UpdateDocumentRequest, DocumentResponse,
+│   │   │                    #   CreateLabelRequest, UpdateLabelRequest, LabelResponse
+│   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType,
+│   │   │                    #   Document, Label
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
-│   │   │                    #   InvalidVerificationTokenException
-│   │   ├── repository/      # UserRepository, VerificationTokenRepository
+│   │   │                    #   InvalidVerificationTokenException,
+│   │   │                    #   DocumentNotFoundException, LabelNotFoundException
+│   │   ├── repository/      # UserRepository, VerificationTokenRepository,
+│   │   │                    #   DocumentRepository, LabelRepository
 │   │   ├── security/        # JwtService, JwtAuthenticationFilter,
 │   │   │                    #   OAuth2AuthenticationSuccessHandler,
 │   │   │                    #   OAuth2AuthenticationFailureHandler,
 │   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
 │   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
-│   │                        #   OAuth2UserService
+│   │                        #   OAuth2UserService, DocumentService, LabelService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -352,7 +357,109 @@ Set `mail.smtp.auth=true` and `mail.smtp.starttls.enable=true` via properties or
 
 ---
 
+## Documents & Labels (Projects Tab)
+
+### Entities
+
+**`Document`** — table `documents`
+
+| Colonne | Type | Notes |
+|---|---|---|
+| `id` | BIGINT PK | auto-increment |
+| `title` | VARCHAR NOT NULL | |
+| `blocks` | JSON | défaut `"[]"` — contenu de l'éditeur bloc |
+| `owner_id` | BIGINT FK → users.id | |
+| `is_public` | BOOLEAN NOT NULL | défaut `false` |
+| `compile_pdf_path` | VARCHAR NULL | chemin du PDF compilé |
+| `word_count` | INT NOT NULL | défaut 0 |
+| `created_at` | DATETIME NOT NULL | immutable |
+| `updated_at` | DATETIME | refreshed on update |
+| `deleted_at` | DATETIME NULL | soft-delete — non null = supprimé |
+| `pinned` | BOOLEAN NOT NULL | défaut `false` |
+| `icon` | VARCHAR NULL | |
+| `color` | VARCHAR NULL | |
+| `equation_count` | INT NOT NULL | défaut 0 — statistiques |
+| `figure_count` | INT NOT NULL | défaut 0 |
+| `plot_count` | INT NOT NULL | défaut 0 |
+| `code_count` | INT NOT NULL | défaut 0 |
+| `compilation_count` | INT NOT NULL | défaut 0 |
+
+**`Label`** — table `labels`
+
+| Colonne | Type | Notes |
+|---|---|---|
+| `id` | BIGINT PK | auto-increment |
+| `name` | VARCHAR NOT NULL | |
+| `color` | VARCHAR NULL | |
+| `user_id` | BIGINT FK → users.id | |
+| `created_at` | DATETIME NOT NULL | immutable |
+
+**Table de jointure `document_labels`** : `label_id` + `document_id` (Label est le côté propriétaire de la relation ManyToMany).
+
+### Relation ManyToMany
+
+- `Label.documents` (`@ManyToMany` avec `@JoinTable`) — côté propriétaire.
+- `Document.labels` (`@ManyToMany(mappedBy = "documents")`) — côté inverse.
+- Pour ajouter/retirer un label, toujours passer par le côté `Label` et sauvegarder le label.
+
+### Boolean `isPublic` — convention Lombok/Jackson
+
+Le champ `private boolean isPublic` dans l'entité `Document` génère via Lombok :
+- getter `isPublic()`, setter `setPublic(boolean)` (Lombok retire le préfixe `is`).
+
+Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) pour que Lombok génère `getIsPublic()` / `setIsPublic(Boolean)`, ce que Jackson mappe correctement sur la clé JSON `"isPublic"`.
+
+### API Documents (Protected)
+
+| Méthode | Endpoint | Status | Description |
+|---|---|---|---|
+| `POST` | `/api/documents` | 201 | Créer un document |
+| `GET` | `/api/documents` | 200 | Lister ses documents (hors soft-deleted) |
+| `GET` | `/api/documents/{id}` | 200 | Récupérer un document |
+| `PATCH` | `/api/documents/{id}` | 200 | Modifier (partiel) |
+| `DELETE` | `/api/documents/{id}` | 204 | Soft-delete |
+| `POST` | `/api/documents/{id}/labels/{labelId}` | 200 | Attacher un label |
+| `DELETE` | `/api/documents/{id}/labels/{labelId}` | 200 | Détacher un label |
+
+**`DocumentResponse`** (record) :
+```json
+{
+  "id": 1, "title": "Mon doc", "blocks": "[]",
+  "isPublic": false, "compilePdfPath": null,
+  "wordCount": 0, "createdAt": "...", "updatedAt": "...",
+  "pinned": false, "icon": null, "color": null,
+  "equationCount": 0, "figureCount": 0, "plotCount": 0,
+  "codeCount": 0, "compilationCount": 0,
+  "labels": [{ "id": 1, "name": "urgent", "color": "#ff0000" }]
+}
+```
+
+| Status | Meaning |
+|---|---|
+| `404 Not Found` | Document introuvable ou n'appartient pas à l'utilisateur |
+
+### API Labels (Protected)
+
+| Méthode | Endpoint | Status | Description |
+|---|---|---|---|
+| `POST` | `/api/labels` | 201 | Créer un label |
+| `GET` | `/api/labels` | 200 | Lister ses labels |
+| `PATCH` | `/api/labels/{id}` | 200 | Modifier nom/couleur |
+| `DELETE` | `/api/labels/{id}` | 204 | Supprimer un label |
+
+| Status | Meaning |
+|---|---|
+| `404 Not Found` | Label introuvable ou n'appartient pas à l'utilisateur |
+
+### Règles métier
+
+- Un utilisateur ne voit et ne modifie que **ses propres** documents et labels.
+- Les documents soft-deletés (`deleted_at IS NOT NULL`) sont exclus de toutes les requêtes.
+- Les compteurs (`wordCount`, `equationCount`, etc.) sont mis à jour par le client via `PATCH` — aucune compilation n'est effectuée côté serveur.
+- Un label ne peut être attaché à un document que s'il appartient **au même utilisateur**.
+
+---
+
 ## Planned Features (not yet implemented)
 
 - Stripe payment integration
-- Document CRUD (core SaaS feature)
