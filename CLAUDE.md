@@ -416,8 +416,11 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
 | `POST` | `/api/documents` | 201 | Créer un document |
 | `GET` | `/api/documents` | 200 | Lister ses documents (hors soft-deleted) |
 | `GET` | `/api/documents/{id}` | 200 | Récupérer un document |
-| `PATCH` | `/api/documents/{id}` | 200 | Modifier (partiel) |
-| `DELETE` | `/api/documents/{id}` | 204 | Soft-delete |
+| `PATCH` | `/api/documents/{id}` | 200 | Modifier (partiel) — bloqué si `deletedAt != null` |
+| `DELETE` | `/api/documents/{id}` | 204 | Soft-delete → envoie en corbeille |
+| `GET` | `/api/documents/bin` | 200 | Lister les documents en corbeille |
+| `POST` | `/api/documents/{id}/restore` | 200 | Restaurer depuis la corbeille |
+| `DELETE` | `/api/documents/{id}/permanent` | 204 | Supprimer définitivement (corbeille seulement) |
 | `POST` | `/api/documents/{id}/labels/{labelId}` | 200 | Attacher un label |
 | `DELETE` | `/api/documents/{id}/labels/{labelId}` | 200 | Détacher un label |
 
@@ -430,9 +433,13 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
   "pinned": false, "icon": null, "color": null,
   "equationCount": 0, "figureCount": 0, "plotCount": 0,
   "codeCount": 0, "compilationCount": 0,
-  "labels": [{ "id": 1, "name": "urgent", "color": "#ff0000" }]
+  "labels": [{ "id": 1, "name": "urgent", "color": "#ff0000" }],
+  "deletedAt": null,
+  "daysUntilPermanentDeletion": null
 }
 ```
+
+Documents en corbeille : `deletedAt` est non-null et `daysUntilPermanentDeletion` indique les jours restants (0–30) avant suppression automatique.
 
 | Status | Meaning |
 |---|---|
@@ -454,9 +461,22 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
 ### Règles métier
 
 - Un utilisateur ne voit et ne modifie que **ses propres** documents et labels.
-- Les documents soft-deletés (`deleted_at IS NOT NULL`) sont exclus de toutes les requêtes.
+- Les documents soft-deletés (`deleted_at IS NOT NULL`) sont exclus de `GET /documents` et de `PATCH` — ils ne sont accessibles que via `GET /bin`.
 - Les compteurs (`wordCount`, `equationCount`, etc.) sont mis à jour par le client via `PATCH` — aucune compilation n'est effectuée côté serveur.
 - Un label ne peut être attaché à un document que s'il appartient **au même utilisateur**.
+
+---
+
+## Bin (Corbeille)
+
+### Règles
+
+- `DELETE /api/documents/{id}` → soft-delete : positionne `deleted_at = now()`.
+- Les documents restent en corbeille **30 jours** maximum.
+- `daysUntilPermanentDeletion` = `max(0, deletedAt + 30j - now())` en jours entiers.
+- Restaurer (`POST /restore`) remet `deleted_at = null` → document éditable à nouveau.
+- Supprimer définitivement (`DELETE /permanent`) n'est possible que si `deleted_at IS NOT NULL`.
+- Un scheduler (`@Scheduled cron = "0 0 2 * * *"`) supprime chaque nuit les documents dont `deleted_at < now() - 30j` — la suppression nettoie aussi la table de jointure `document_labels`.
 
 ---
 

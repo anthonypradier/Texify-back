@@ -20,5 +20,7 @@ public record DocumentResponse(
         int plotCount,
         int codeCount,
         int compilationCount,
-        List<LabelResponse> labels
+        List<LabelResponse> labels,
+        LocalDateTime deletedAt,
+        Long daysUntilPermanentDeletion
 ) {}

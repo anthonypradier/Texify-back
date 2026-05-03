@@ -65,6 +65,30 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/bin")
+    public ResponseEntity<List<DocumentResponse>> getBin(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        log.debug("GET /api/documents/bin — user '{}'", userDetails.getUsername());
+        return ResponseEntity.ok(documentService.getBinDocuments(userDetails.getUsername()));
+    }
+
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<DocumentResponse> restore(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        log.debug("POST /api/documents/{}/restore — user '{}'", id, userDetails.getUsername());
+        return ResponseEntity.ok(documentService.restoreDocument(id, userDetails.getUsername()));
+    }
+
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<Void> permanentDelete(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        log.debug("DELETE /api/documents/{}/permanent — user '{}'", id, userDetails.getUsername());
+        documentService.permanentlyDeleteDocument(id, userDetails.getUsername());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{id}/labels/{labelId}")
     public ResponseEntity<DocumentResponse> addLabel(
             @PathVariable Long id,

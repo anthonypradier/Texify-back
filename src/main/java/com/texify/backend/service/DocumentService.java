@@ -14,17 +14,22 @@ import com.texify.backend.repository.LabelRepository;
 import com.texify.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DocumentService {
+
+    private static final long BIN_RETENTION_DAYS = 30;
 
     private final DocumentRepository documentRepository;
     private final LabelRepository labelRepository;
@@ -90,6 +95,52 @@ public class DocumentService {
         documentRepository.save(document);
     }
 
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> getBinDocuments(String ownerEmail) {
+        log.debug("Listing bin documents for user '{}'", ownerEmail);
+        return documentRepository.findByOwnerEmailAndDeletedAtIsNotNull(ownerEmail)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Transactional
+    public DocumentResponse restoreDocument(Long id, String ownerEmail) {
+        log.info("Restoring document {} for user '{}'", id, ownerEmail);
+        Document document = documentRepository.findByIdAndOwnerEmail(id, ownerEmail)
+                .filter(d -> d.getDeletedAt() != null)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        document.setDeletedAt(null);
+        return toResponse(documentRepository.save(document));
+    }
+
+    @Transactional
+    public void permanentlyDeleteDocument(Long id, String ownerEmail) {
+        log.info("Permanently deleting document {} for user '{}'", id, ownerEmail);
+        Document document = documentRepository.findByIdAndOwnerEmail(id, ownerEmail)
+                .filter(d -> d.getDeletedAt() != null)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        deleteWithLabelCleanup(document);
+    }
+
+    @Scheduled(cron = "0 0 2 * * *")
+    @Transactional
+    public void cleanupExpiredBinDocuments() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(BIN_RETENTION_DAYS);
+        log.info("Purging bin documents with deletedAt before {}", cutoff);
+        List<Document> expired = documentRepository.findByDeletedAtBefore(cutoff);
+        expired.forEach(this::deleteWithLabelCleanup);
+        log.info("Purged {} expired bin document(s)", expired.size());
+    }
+
+    private void deleteWithLabelCleanup(Document document) {
+        List<Label> labels = new ArrayList<>(document.getLabels());
+        labels.forEach(label -> label.getDocuments().remove(document));
+        labelRepository.saveAll(labels);
+        document.getLabels().clear();
+        documentRepository.delete(document);
+    }
+
     @Transactional
     public DocumentResponse addLabel(Long documentId, Long labelId, String ownerEmail) {
         log.info("Adding label {} to document {} for user '{}'", labelId, documentId, ownerEmail);
@@ -122,6 +173,13 @@ public class DocumentService {
         List<LabelResponse> labelResponses = doc.getLabels().stream()
                 .map(l -> new LabelResponse(l.getId(), l.getName(), l.getColor()))
                 .toList();
+        Long daysUntilPermanentDeletion = null;
+        if (doc.getDeletedAt() != null) {
+            long days = ChronoUnit.DAYS.between(
+                    LocalDateTime.now(),
+                    doc.getDeletedAt().plusDays(BIN_RETENTION_DAYS));
+            daysUntilPermanentDeletion = Math.max(0, days);
+        }
         return new DocumentResponse(
                 doc.getId(),
                 doc.getTitle(),
@@ -139,7 +197,9 @@ public class DocumentService {
                 doc.getPlotCount(),
                 doc.getCodeCount(),
                 doc.getCompilationCount(),
-                labelResponses
+                labelResponses,
+                doc.getDeletedAt(),
+                daysUntilPermanentDeletion
         );
     }
 }
