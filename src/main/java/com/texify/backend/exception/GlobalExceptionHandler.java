@@ -86,6 +86,12 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
     }
 
+    @ExceptionHandler(TemplateNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleTemplateNotFound(TemplateNotFoundException ex) {
+        log.warn("Template not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
+    }
+
     /**
      * Handles the case where no account exists for a given email.
      *

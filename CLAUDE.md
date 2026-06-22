@@ -268,27 +268,31 @@ All errors return a consistent JSON body:
 src/
 ├── main/
 │   ├── java/com/texify/backend/
-│   │   ├── config/          # SecurityConfig
-│   │   ├── controller/      # AuthController, DocumentController, LabelController
+│   │   ├── config/          # SecurityConfig, TemplateSeeder
+│   │   ├── controller/      # AuthController, DocumentController, LabelController,
+│   │   │                    #   TemplateController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
 │   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
 │   │   │                    #   ResetPasswordRequest,
 │   │   │                    #   CreateDocumentRequest, UpdateDocumentRequest, DocumentResponse,
-│   │   │                    #   CreateLabelRequest, UpdateLabelRequest, LabelResponse
+│   │   │                    #   CreateLabelRequest, UpdateLabelRequest, LabelResponse,
+│   │   │                    #   TemplateResponse
 │   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType,
-│   │   │                    #   Document, Label
+│   │   │                    #   Document, Label, Template
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
 │   │   │                    #   InvalidVerificationTokenException,
-│   │   │                    #   DocumentNotFoundException, LabelNotFoundException
+│   │   │                    #   DocumentNotFoundException, LabelNotFoundException,
+│   │   │                    #   TemplateNotFoundException
 │   │   ├── repository/      # UserRepository, VerificationTokenRepository,
-│   │   │                    #   DocumentRepository, LabelRepository
+│   │   │                    #   DocumentRepository, LabelRepository, TemplateRepository
 │   │   ├── security/        # JwtService, JwtAuthenticationFilter,
 │   │   │                    #   OAuth2AuthenticationSuccessHandler,
 │   │   │                    #   OAuth2AuthenticationFailureHandler,
 │   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
 │   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
-│   │                        #   OAuth2UserService, DocumentService, LabelService
+│   │                        #   OAuth2UserService, DocumentService, LabelService,
+│   │                        #   TemplateService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -460,6 +464,75 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
 
 ---
 
+## Templates (Templates Tab)
+
+L'onglet « Templates » présente des cartes (mêmes cards que les documents). Cliquer sur une carte ouvre l'éditeur sur un **PDF de preview par défaut** (`previewPdfPath`). L'utilisateur peut alors créer un nouveau document à partir du template (bouton « New document with template ») ou revenir en arrière. La création est aussi accessible via les « trois points » de la carte.
+
+**MVP : uniquement des templates « système »** — seedés au démarrage, sans créateur (`created_by = NULL`, `is_system = true`). La création de templates par l'utilisateur viendra plus tard.
+
+### Entité
+
+**`Template`** — table `templates`
+
+| Colonne | Type | Notes |
+|---|---|---|
+| `id` | BIGINT PK | auto-increment |
+| `title` | VARCHAR NOT NULL | |
+| `description` | VARCHAR NULL | texte de la carte |
+| `blocks` | JSON | défaut `"[]"` — contenu éditeur (usage futur) |
+| `preview_pdf_path` | VARCHAR NULL | PDF par défaut affiché en preview dans l'éditeur |
+| `icon` | VARCHAR NULL | |
+| `color` | VARCHAR NULL | |
+| `category` | VARCHAR NULL | regroupement libre (ex. « Academic ») |
+| `is_system` | BOOLEAN NOT NULL | défaut `false` — `true` = template intégré |
+| `created_by` | BIGINT FK → users.id NULL | `NULL` = template système |
+| `created_at` | DATETIME NOT NULL | immutable |
+| `updated_at` | DATETIME | refreshed on update |
+
+Un template est **accessible** à un utilisateur s'il est `is_system = true` **ou** que `created_by` est l'utilisateur courant. Un template inaccessible renvoie `404` (pas de fuite d'existence).
+
+### Seeding
+
+`TemplateSeeder` (`CommandLineRunner`) insère 4 templates système au démarrage si aucun n'existe (idempotent). En dev (`ddl-auto: create-drop`) le seeding s'exécute à chaque boot ; en prod le garde-fou évite les doublons. Templates par défaut : *Academic Paper*, *Resume / CV*, *Lab Report*, *Beamer Presentation*.
+
+### API Templates (Protected)
+
+| Méthode | Endpoint | Status | Description |
+|---|---|---|---|
+| `GET` | `/api/templates` | 200 | Lister les templates accessibles (système + ceux de l'user) |
+| `GET` | `/api/templates/{id}` | 200 | Récupérer un template (preview dans l'éditeur) |
+| `POST` | `/api/templates/{id}/use` | 201 | Créer un document à partir du template — renvoie `DocumentResponse` |
+
+**`TemplateResponse`** (record) :
+```json
+{
+  "id": 1,
+  "title": "Academic Paper",
+  "description": "A clean two-column article layout for research papers.",
+  "blocks": "[]",
+  "previewPdfPath": "/templates/previews/academic-paper.pdf",
+  "icon": "📄",
+  "color": "#4F46E5",
+  "category": "Academic",
+  "isSystem": true,
+  "createdAt": "..."
+}
+```
+
+| Status | Meaning |
+|---|---|
+| `404 Not Found` | Template introuvable ou non accessible à l'utilisateur |
+
+### Règles métier
+
+- `POST /{id}/use` crée un **document neuf et vierge** pour l'utilisateur courant : `title = "<template> - copy"`, `blocks = "[]"`. **Aucune autre donnée** du template (preview, icon, color, blocks) n'est copiée — la liaison au template est volontairement absente du MVP.
+- Le document créé est un `Document` standard : il apparaît ensuite dans `GET /api/documents` et suit tout le cycle de vie habituel.
+- L'éditeur n'est pas encore fonctionnel : la preview se limite au PDF par défaut (`previewPdfPath`).
+
+---
+
 ## Planned Features (not yet implemented)
+
+- Création / édition de templates par l'utilisateur (templates non-système)
 
 - Stripe payment integration
