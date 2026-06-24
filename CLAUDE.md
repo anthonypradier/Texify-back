@@ -529,6 +529,14 @@ Un template est **accessible** à un utilisateur s'il est `is_system = true` **o
 - Le document créé est un `Document` standard : il apparaît ensuite dans `GET /api/documents` et suit tout le cycle de vie habituel.
 - L'éditeur n'est pas encore fonctionnel : la preview se limite au PDF par défaut (`previewPdfPath`).
 
+### Piège JPQL — INNER JOIN implicite sur `createdBy` (templates système)
+
+`TemplateRepository.findAccessibleBy` doit utiliser un **LEFT JOIN explicite** :
+```java
+@Query("SELECT t FROM Template t LEFT JOIN t.createdBy u WHERE t.isSystem = true OR u.email = :email")
+```
+Naviguer une association dans le `WHERE` (`t.createdBy.email`) génère un **INNER JOIN implicite** : comme les templates système ont `created_by = NULL`, ils étaient **tous éliminés** avant l'évaluation du `WHERE` → liste vide côté API (« no templates available » au front) alors que l'endpoint répond bien `200`. Le `LEFT JOIN` préserve les lignes à `createdBy` null.
+
 ---
 
 ## Planned Features (not yet implemented)
