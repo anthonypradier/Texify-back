@@ -523,6 +523,19 @@ Un template est **accessible** à un utilisateur s'il est `is_system = true` **o
 |---|---|
 | `404 Not Found` | Template introuvable ou non accessible à l'utilisateur |
 
+### Preview PDF des templates — réglages Spring Security temporaires ⚠️
+
+> **TEMPORAIRE** — à durcir plus tard, voir *Planned Features*.
+
+Les PDF de preview sont des **fichiers statiques** (`src/main/resources/static/templates/previews/*.pdf`), servis directement par Spring Boot à l'URL `/templates/previews/<fichier>.pdf` (= valeur de `previewPdfPath`). Ce ne sont **pas** des endpoints de contrôleur.
+
+Deux ajustements dans `SecurityConfig` pour que le front puisse les afficher :
+
+1. **`X-Frame-Options` désactivé** — `headers(h -> h.frameOptions(f -> f.disable()))`. Le défaut Spring Security est `DENY`, qui empêchait le front d'afficher le PDF dans un `<iframe>`/`<embed>`. `disable()` supprime complètement l'en-tête (solution permissive, retenue en accord avec l'agent front).
+2. **`/templates/previews/**` rendu public** — ajouté au `permitAll()`. Sinon `anyRequest().authenticated()` exigeait un JWT pour télécharger les PDF statiques (le front ne pouvait pas les charger dans une balise sans en-tête `Authorization`).
+
+À nettoyer à terme : remplacer `frameOptions.disable()` par une CSP `frame-ancestors` ciblée sur l'origine du front plutôt qu'une désactivation totale.
+
 ### Règles métier
 
 - `POST /{id}/use` crée un **document neuf et vierge** pour l'utilisateur courant : `title = "<template> - copy"`, `blocks = "[]"`. **Aucune autre donnée** du template (preview, icon, color, blocks) n'est copiée — la liaison au template est volontairement absente du MVP.

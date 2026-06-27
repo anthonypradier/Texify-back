@@ -63,6 +63,12 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
+                .headers(headers -> headers
+                        // Default is X-Frame-Options: DENY, which blocks the
+                        // frontend from displaying compiled PDFs in an <iframe>/<embed>.
+                        // SAMEORIGIN allows framing by pages served from the same origin.
+                        .frameOptions(frame -> frame.disable())
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/register",
@@ -72,7 +78,8 @@ public class SecurityConfig {
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
                                 "/oauth2/authorization/**",
-                                "/login/oauth2/code/**"
+                                "/login/oauth2/code/**",
+                                "/templates/previews/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
