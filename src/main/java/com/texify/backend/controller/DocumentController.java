@@ -82,4 +82,18 @@ public class DocumentController {
         log.debug("DELETE /api/documents/{}/labels/{} — user '{}'", id, labelId, userDetails.getUsername());
         return ResponseEntity.ok(documentService.removeLabel(id, labelId, userDetails.getUsername()));
     }
+
+    /**
+     * Preview status of a document — polled by the frontend while a generation
+     * is in progress. Returns the full {@code DocumentResponse} (which carries
+     * {@code previewStatus} and {@code previewImageUrl}); access is restricted
+     * to the owner by {@code findById}.
+     */
+    @GetMapping("/{id}/preview/status")
+    public ResponseEntity<DocumentResponse> getPreviewStatus(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        log.debug("GET /api/documents/{}/preview/status — user '{}'", id, userDetails.getUsername());
+        return ResponseEntity.ok(documentService.findById(id, userDetails.getUsername()));
+    }
 }

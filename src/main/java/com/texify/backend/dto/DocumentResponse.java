@@ -1,5 +1,7 @@
 package com.texify.backend.dto;
 
+import com.texify.backend.entity.PreviewStatus;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,5 +22,7 @@ public record DocumentResponse(
         int plotCount,
         int codeCount,
         int compilationCount,
+        String previewImageUrl,
+        PreviewStatus previewStatus,
         List<LabelResponse> labels
 ) {}

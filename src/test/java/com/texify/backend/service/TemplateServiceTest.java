@@ -3,6 +3,7 @@ package com.texify.backend.service;
 import com.texify.backend.dto.CreateDocumentRequest;
 import com.texify.backend.dto.DocumentResponse;
 import com.texify.backend.dto.TemplateResponse;
+import com.texify.backend.entity.PreviewStatus;
 import com.texify.backend.entity.Template;
 import com.texify.backend.entity.User;
 import com.texify.backend.exception.TemplateNotFoundException;
@@ -128,6 +129,6 @@ class TemplateServiceTest {
         return new DocumentResponse(
                 10L, title, "[]", false, null, 0,
                 null, null, false, null, null,
-                0, 0, 0, 0, 0, List.of());
+                0, 0, 0, 0, 0, null, PreviewStatus.PENDING, List.of());
     }
 }
