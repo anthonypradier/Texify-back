@@ -1,5 +1,6 @@
 package com.texify.backend.config;
 
+import com.texify.backend.entity.PreviewStatus;
 import com.texify.backend.entity.Template;
 import com.texify.backend.repository.TemplateRepository;
 import lombok.RequiredArgsConstructor;
@@ -7,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -32,6 +34,10 @@ public class TemplateSeeder implements CommandLineRunner {
             return;
         }
 
+        // The system templates ship with ready-made static preview PDFs, so they
+        // start as READY. previewImagePath stays null (no PNG thumbnail yet —
+        // the frontend falls back to the PDF / a placeholder).
+        LocalDateTime now = LocalDateTime.now();
         List<Template> templates = List.of(
                 Template.builder()
                         .title("Academic Paper")
@@ -40,6 +46,8 @@ public class TemplateSeeder implements CommandLineRunner {
                         .icon("📄")
                         .color("#4F46E5")
                         .previewPdfPath("/templates/previews/academic-paper.pdf")
+                        .previewStatus(PreviewStatus.READY)
+                        .previewGeneratedAt(now)
                         .isSystem(true)
                         .build(),
                 Template.builder()
@@ -49,6 +57,8 @@ public class TemplateSeeder implements CommandLineRunner {
                         .icon("🧑‍💼")
                         .color("#059669")
                         .previewPdfPath("/templates/previews/resume.pdf")
+                        .previewStatus(PreviewStatus.READY)
+                        .previewGeneratedAt(now)
                         .isSystem(true)
                         .build(),
                 Template.builder()
@@ -58,6 +68,8 @@ public class TemplateSeeder implements CommandLineRunner {
                         .icon("🧪")
                         .color("#DC2626")
                         .previewPdfPath("/templates/previews/lab-report.pdf")
+                        .previewStatus(PreviewStatus.READY)
+                        .previewGeneratedAt(now)
                         .isSystem(true)
                         .build(),
                 Template.builder()
@@ -67,6 +79,8 @@ public class TemplateSeeder implements CommandLineRunner {
                         .icon("📊")
                         .color("#D97706")
                         .previewPdfPath("/templates/previews/beamer.pdf")
+                        .previewStatus(PreviewStatus.READY)
+                        .previewGeneratedAt(now)
                         .isSystem(true)
                         .build()
         );

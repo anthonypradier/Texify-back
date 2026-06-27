@@ -2,6 +2,7 @@ package com.texify.backend.controller;
 
 import com.texify.backend.dto.DocumentResponse;
 import com.texify.backend.dto.TemplateResponse;
+import com.texify.backend.entity.PreviewStatus;
 import com.texify.backend.service.TemplateService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,9 @@ class TemplateControllerTest {
 
     private static final TemplateResponse SAMPLE_TEMPLATE = new TemplateResponse(
             1L, "Academic Paper", "A clean article layout.", "[]",
-            "/templates/previews/academic-paper.pdf", "📄", "#4F46E5", "Academic",
+            "/templates/previews/academic-paper.pdf",
+            null, "/templates/previews/academic-paper.pdf", PreviewStatus.READY,
+            "📄", "#4F46E5", "Academic",
             true, null);
 
     private static final DocumentResponse SAMPLE_DOCUMENT = new DocumentResponse(

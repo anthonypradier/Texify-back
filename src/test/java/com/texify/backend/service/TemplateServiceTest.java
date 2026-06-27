@@ -28,6 +28,7 @@ class TemplateServiceTest {
 
     @Mock private TemplateRepository templateRepository;
     @Mock private DocumentService documentService;
+    @Mock private StorageService storageService;
 
     @InjectMocks
     private TemplateService templateService;

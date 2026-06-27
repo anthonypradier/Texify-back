@@ -79,7 +79,8 @@ public class SecurityConfig {
                                 "/api/auth/reset-password",
                                 "/oauth2/authorization/**",
                                 "/login/oauth2/code/**",
-                                "/templates/previews/**"
+                                "/templates/previews/**",
+                                "/storage/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

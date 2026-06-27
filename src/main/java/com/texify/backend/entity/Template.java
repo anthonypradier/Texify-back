@@ -42,6 +42,31 @@ public class Template {
     @Column(name = "preview_pdf_path")
     private String previewPdfPath;
 
+    /**
+     * Relative path of the PNG preview image (first page of the compiled PDF).
+     * {@code null} = no image yet → frontend shows a placeholder.
+     */
+    @Column(name = "preview_image_path", length = 500)
+    private String previewImagePath;
+
+    /** When the current preview was generated. {@code null} = never generated. */
+    @Column(name = "preview_generated_at")
+    private LocalDateTime previewGeneratedAt;
+
+    /**
+     * Last time the {@code blocks} content changed. Compared against
+     * {@link #previewGeneratedAt} to detect a stale preview.
+     */
+    @Column(name = "blocks_updated_at", nullable = false)
+    @Builder.Default
+    private LocalDateTime blocksUpdatedAt = LocalDateTime.now();
+
+    /** Current preview lifecycle state. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preview_status", nullable = false, length = 15)
+    @Builder.Default
+    private PreviewStatus previewStatus = PreviewStatus.PENDING;
+
     private String icon;
 
     private String color;
@@ -72,6 +97,9 @@ public class Template {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (blocksUpdatedAt == null) {
+            blocksUpdatedAt = LocalDateTime.now();
+        }
     }
 
     @PreUpdate

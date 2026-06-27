@@ -268,9 +268,9 @@ All errors return a consistent JSON body:
 src/
 ├── main/
 │   ├── java/com/texify/backend/
-│   │   ├── config/          # SecurityConfig, TemplateSeeder
+│   │   ├── config/          # SecurityConfig, TemplateSeeder, StorageConfig
 │   │   ├── controller/      # AuthController, DocumentController, LabelController,
-│   │   │                    #   TemplateController
+│   │   │                    #   TemplateController, StorageController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
 │   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
@@ -279,11 +279,11 @@ src/
 │   │   │                    #   CreateLabelRequest, UpdateLabelRequest, LabelResponse,
 │   │   │                    #   TemplateResponse
 │   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType,
-│   │   │                    #   Document, Label, Template
+│   │   │                    #   Document, Label, Template, PreviewStatus
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
 │   │   │                    #   InvalidVerificationTokenException,
 │   │   │                    #   DocumentNotFoundException, LabelNotFoundException,
-│   │   │                    #   TemplateNotFoundException
+│   │   │                    #   TemplateNotFoundException, InvalidFileException, StorageException
 │   │   ├── repository/      # UserRepository, VerificationTokenRepository,
 │   │   │                    #   DocumentRepository, LabelRepository, TemplateRepository
 │   │   ├── security/        # JwtService, JwtAuthenticationFilter,
@@ -292,7 +292,7 @@ src/
 │   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
 │   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
 │   │                        #   OAuth2UserService, DocumentService, LabelService,
-│   │                        #   TemplateService
+│   │                        #   TemplateService, TemplatePreviewService, StorageService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -552,8 +552,80 @@ Naviguer une association dans le `WHERE` (`t.createdBy.email`) génère un **INN
 
 ---
 
+## Système de preview des templates & stockage de fichiers
+
+### Principe
+Les previews sont **générées une fois** (à terme : compilation LaTeX → PNG page 1 + PDF), stockées sur le système de fichiers, puis **invalidées** quand les blocs du template changent. Pattern : générer → mettre en cache → invalider sur changement.
+
+> ⚠️ Le compilateur LaTeX (tectonic) **n'est pas encore branché**. Toute l'infrastructure est en place ; `TemplatePreviewService.generatePreviewAsync` est un **stub**. En attendant, les previews des templates système sont fournies par les PDF statiques seedés et/ou un upload manuel admin.
+
+### Champs ajoutés à l'entité `Template`
+
+| Colonne | Type | Notes |
+|---|---|---|
+| `preview_image_path` | VARCHAR(500) NULL | chemin relatif du PNG (page 1) — `null` = placeholder front |
+| `preview_pdf_path` | VARCHAR NULL | déjà existant — chemin du PDF de preview |
+| `preview_generated_at` | DATETIME NULL | date de génération de la preview courante |
+| `blocks_updated_at` | DATETIME NOT NULL | màj à chaque changement des blocs — sert à détecter l'obsolescence |
+| `preview_status` | VARCHAR(15) NOT NULL | enum `PreviewStatus`, défaut `PENDING` |
+
+**Pas de migration Flyway** (le projet n'en a pas) : les colonnes sont créées par `ddl-auto`. Le `TemplateSeeder` initialise les 4 templates système avec `previewStatus = READY` + `previewGeneratedAt = now` (ils ont déjà un PDF statique).
+
+### Enum `PreviewStatus` (`entity/PreviewStatus.java`)
+`PENDING` (jamais générée) · `GENERATING` (job async en cours, spinner front) · `READY` (à jour) · `OUTDATED` (blocs modifiés depuis) · `ERROR` (échec génération).
+
+Obsolescence : `blocksUpdatedAt > previewGeneratedAt` → preview à régénérer (`TemplatePreviewService.isPreviewUpToDate`).
+
+### Stockage de fichiers (`StorageConfig` + `StorageService`)
+Propriétés `texify.storage.*` (defaults adaptés au port **9000**) :
+```yaml
+texify.storage:
+  local-root-path: ${STORAGE_ROOT:./storage}     # racine locale (gitignored)
+  type:            ${STORAGE_TYPE:LOCAL}          # LOCAL | S3 (S3 = futur)
+  base-url:        ${STORAGE_BASE_URL:http://localhost:9000/storage}
+```
+Arborescence créée au démarrage (`@PostConstruct`) :
+```
+storage/
+├── templates/previews/{templateId}/preview.png
+├── templates/pdfs/{templateId}/template.pdf
+└── documents/{pdfs,images}/...
+```
+- Chemins stockés en base **relatifs** (jamais d'URL absolue). L'URL publique est construite par `StorageService.buildPublicUrl` au moment de la réponse.
+- **Convention `buildPublicUrl`** : un chemin commençant par `/` est renvoyé tel quel (asset statique seedé, ex. `/templates/previews/academic-paper.pdf`, servi depuis `src/main/resources/static`) ; sinon il est préfixé par `base-url` → `/storage/...`.
+- **Sécurité path traversal** : `StorageService` vérifie que le chemin résolu reste sous la racine, sinon `SecurityException`.
+
+### `StorageController` — `GET /storage/**` (public, cache 24h)
+Sert les fichiers du stockage local en dev (en prod : Nginx/CDN, désactiver le controller). Rendu **public** via `permitAll` sur `/storage/**` dans `SecurityConfig`. ⚠️ Pour le MVP **tout** `/storage/**` est public ; à durcir quand les PDF de documents (privés) y seront stockés.
+
+### Upload manuel des previews (ADMIN, phase dev sans compilateur)
+| Méthode | Endpoint | Rôle | Description |
+|---|---|---|---|
+| `POST` | `/api/templates/{id}/preview/image` | ADMIN | upload PNG/JPG/WebP (≤ 5 Mo), `multipart` champ `file` → `previewStatus = READY` |
+| `POST` | `/api/templates/{id}/preview/pdf` | ADMIN | upload PDF (≤ 20 Mo), `multipart` champ `file` |
+| `GET` | `/api/templates/{id}/preview/status` | USER | renvoie le `TemplateResponse` (contient `previewStatus`, URLs) — pour le polling front |
+
+`@PreAuthorize("hasRole('ADMIN')")` (méthode security déjà activée). Multipart configuré dans `application.yml` (`spring.servlet.multipart`, max 20/25 Mo).
+
+### DTO `TemplateResponse` — champs ajoutés
+`previewImageUrl` et `previewPdfUrl` (URLs complètes construites par `StorageService`, nullable) + `previewStatus`. `previewPdfPath` (chemin brut) est conservé pour rétro-compat. Le mapping vit dans `TemplateService.toResponse` (rendu **public** et réutilisé par `TemplatePreviewService` — pas de dépendance circulaire car `TemplateService` ne dépend pas de `TemplatePreviewService`).
+
+### Génération auto (TODO — brancher tectonic)
+`TemplatePreviewService.generatePreviewAsync` est le stub à implémenter. Flux prévu : blocks JSON → assemblage `.tex` → compilation tectonic → extraction PNG page 1 (PDFBox) → stockage PNG + PDF → `previewStatus = READY`. Points d'intégration déjà prêts : `invalidatePreview` (à appeler sur modif des blocs) et `deletePreviewFiles` (à appeler avant suppression). `@EnableAsync` / `@EnableScheduling` activés sur la classe main. Dépendance à ajouter le moment venu : `org.apache.pdfbox:pdfbox`.
+
+### Exceptions ajoutées
+`InvalidFileException` → 400 (fichier vide / mauvais type / trop gros) ; `StorageException` → 500 (erreur I/O stockage). Gérées dans `GlobalExceptionHandler`.
+
+---
+
 ## Planned Features (not yet implemented)
 
 - Création / édition de templates par l'utilisateur (templates non-système)
+
+- Compilateur LaTeX (tectonic) : implémenter `TemplatePreviewService.generatePreviewAsync` (blocks → `.tex` → tectonic → PDF → PNG via PDFBox) et appeler `invalidatePreview` sur modif des blocs / `deletePreviewFiles` à la suppression.
+
+- Durcir la sécurité des previews PDF : remplacer `frameOptions.disable()` par une CSP `frame-ancestors` ciblée et resserrer l'accès public à `/templates/previews/**` et `/storage/**` (séparer previews publiques vs fichiers privés de documents).
+
+- Migrer le stockage local vers S3 / Cloudflare R2 (`StorageConfig.type = S3`).
 
 - Stripe payment integration

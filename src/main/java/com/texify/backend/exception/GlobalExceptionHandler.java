@@ -92,6 +92,18 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
     }
 
+    @ExceptionHandler(InvalidFileException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidFile(InvalidFileException ex) {
+        log.warn("Invalid file upload: {}", ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage());
+    }
+
+    @ExceptionHandler(StorageException.class)
+    public ResponseEntity<ErrorResponse> handleStorage(StorageException ex) {
+        log.error("Storage error", ex);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Storage Error", ex.getMessage());
+    }
+
     /**
      * Handles the case where no account exists for a given email.
      *

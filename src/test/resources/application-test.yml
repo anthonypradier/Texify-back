@@ -16,6 +16,11 @@ spring:
     host: localhost
     port: 3025
 
+texify:
+  storage:
+    local-root-path: ./target/test-storage
+    base-url: http://localhost:9000/storage
+
 jwt:
   secret: dGVzdC1zZWNyZXQta2V5LWZvci10ZXhpZnktc2Fhcy1hcHBsaWNhdGlvbi10ZXN0aW5nLW9ubHk=
   expiration: 3600000

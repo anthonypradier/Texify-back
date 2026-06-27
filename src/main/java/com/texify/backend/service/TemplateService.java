@@ -20,6 +20,7 @@ public class TemplateService {
 
     private final TemplateRepository templateRepository;
     private final DocumentService documentService;
+    private final StorageService storageService;
 
     @Transactional(readOnly = true)
     public List<TemplateResponse> findAll(String userEmail) {
@@ -63,13 +64,21 @@ public class TemplateService {
         return template;
     }
 
-    private TemplateResponse toResponse(Template t) {
+    /**
+     * Maps a template to its API view, building public URLs for the preview
+     * files. Public so {@link TemplatePreviewService} can reuse it after an
+     * upload without duplicating the mapping.
+     */
+    public TemplateResponse toResponse(Template t) {
         return new TemplateResponse(
                 t.getId(),
                 t.getTitle(),
                 t.getDescription(),
                 t.getBlocks(),
                 t.getPreviewPdfPath(),
+                storageService.buildPublicUrl(t.getPreviewImagePath()),
+                storageService.buildPublicUrl(t.getPreviewPdfPath()),
+                t.getPreviewStatus(),
                 t.getIcon(),
                 t.getColor(),
                 t.getCategory(),

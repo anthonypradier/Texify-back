@@ -12,6 +12,9 @@ target/
 CLAUDE.md
 back-convention.md
 
+# ── Local file storage (template/document previews & PDFs) ───────────────────
+storage/
+
 # ── Logs ─────────────────────────────────────────────────────────────────────
 logs/
 *.log
