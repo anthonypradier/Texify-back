@@ -38,6 +38,24 @@ public class Document {
     @Column(name = "compile_pdf_path")
     private String compilePdfPath;
 
+    /**
+     * Relative path of the PNG preview (page 1 of the last compiled PDF).
+     * {@code null} = never compiled / compilation pending. Overwritten on each
+     * successful compilation.
+     */
+    @Column(name = "preview_image_path", length = 500)
+    private String previewImagePath;
+
+    /** When the current preview was generated. {@code null} = no preview yet. */
+    @Column(name = "preview_generated_at")
+    private LocalDateTime previewGeneratedAt;
+
+    /** Preview lifecycle state, driven by {@code DocumentPreviewService}. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preview_status", nullable = false, length = 15)
+    @Builder.Default
+    private PreviewStatus previewStatus = PreviewStatus.PENDING;
+
     @Column(name = "word_count", nullable = false)
     @Builder.Default
     private int wordCount = 0;

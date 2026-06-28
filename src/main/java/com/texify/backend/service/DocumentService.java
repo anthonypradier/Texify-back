@@ -29,6 +29,8 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final LabelRepository labelRepository;
     private final UserRepository userRepository;
+    private final StorageService storageService;
+    private final DocumentPreviewService documentPreviewService;
 
     @Transactional
     public DocumentResponse create(String ownerEmail, CreateDocumentRequest request) {
@@ -67,7 +69,11 @@ public class DocumentService {
         Document document = documentRepository.findByIdAndOwnerEmailAndDeletedAtIsNull(id, ownerEmail)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
         if (request.getTitle() != null) document.setTitle(request.getTitle());
-        if (request.getBlocks() != null) document.setBlocks(request.getBlocks());
+        if (request.getBlocks() != null) {
+            document.setBlocks(request.getBlocks());
+            // Blocks changed → the existing preview no longer matches the draft.
+            documentPreviewService.invalidatePreview(document.getId());
+        }
         if (request.getIsPublic() != null) document.setPublic(request.getIsPublic());
         if (request.getPinned() != null) document.setPinned(request.getPinned());
         if (request.getIcon() != null) document.setIcon(request.getIcon());
@@ -139,6 +145,8 @@ public class DocumentService {
                 doc.getPlotCount(),
                 doc.getCodeCount(),
                 doc.getCompilationCount(),
+                storageService.buildPublicUrl(doc.getPreviewImagePath()),
+                doc.getPreviewStatus(),
                 labelResponses
         );
     }

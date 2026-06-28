@@ -47,7 +47,7 @@ class TemplateControllerTest {
     private static final DocumentResponse SAMPLE_DOCUMENT = new DocumentResponse(
             10L, "Academic Paper - copy", "[]", false, null, 0,
             null, null, false, null, null,
-            0, 0, 0, 0, 0, List.of());
+            0, 0, 0, 0, 0, null, PreviewStatus.PENDING, List.of());
 
     @Test
     @DisplayName("GET /api/templates: 200 with template list")

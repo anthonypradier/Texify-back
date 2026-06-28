@@ -291,8 +291,9 @@ src/
 │   │   │                    #   OAuth2AuthenticationFailureHandler,
 │   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
 │   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
-│   │                        #   OAuth2UserService, DocumentService, LabelService,
-│   │                        #   TemplateService, TemplatePreviewService, StorageService
+│   │                        #   OAuth2UserService, DocumentService, DocumentPreviewService,
+│   │                        #   LabelService, TemplateService, TemplatePreviewService,
+│   │                        #   StorageService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -387,6 +388,9 @@ Set `mail.smtp.auth=true` and `mail.smtp.starttls.enable=true` via properties or
 | `plot_count` | INT NOT NULL | défaut 0 |
 | `code_count` | INT NOT NULL | défaut 0 |
 | `compilation_count` | INT NOT NULL | défaut 0 |
+| `preview_image_path` | VARCHAR(500) NULL | PNG page 1 du dernier PDF compilé — `null` = jamais compilé |
+| `preview_generated_at` | DATETIME NULL | date de génération de la preview courante |
+| `preview_status` | VARCHAR(15) NOT NULL | enum `PreviewStatus`, défaut `PENDING` |
 
 **`Label`** — table `labels`
 
@@ -424,6 +428,7 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
 | `DELETE` | `/api/documents/{id}` | 204 | Soft-delete |
 | `POST` | `/api/documents/{id}/labels/{labelId}` | 200 | Attacher un label |
 | `DELETE` | `/api/documents/{id}/labels/{labelId}` | 200 | Détacher un label |
+| `GET` | `/api/documents/{id}/preview/status` | 200 | Statut de preview (polling front) — renvoie un `DocumentResponse` |
 
 **`DocumentResponse`** (record) :
 ```json
@@ -434,6 +439,7 @@ Dans les DTOs de requête, on utilise `private Boolean isPublic` (**wrapper**) p
   "pinned": false, "icon": null, "color": null,
   "equationCount": 0, "figureCount": 0, "plotCount": 0,
   "codeCount": 0, "compilationCount": 0,
+  "previewImageUrl": null, "previewStatus": "PENDING",
   "labels": [{ "id": 1, "name": "urgent", "color": "#ff0000" }]
 }
 ```
@@ -618,11 +624,42 @@ Sert les fichiers du stockage local en dev (en prod : Nginx/CDN, désactiver le 
 
 ---
 
+## Preview des documents
+
+Extension du système de preview (storage + `PreviewStatus`) aux documents. `StorageService`, `PreviewStatus` et `TemplatePreviewService` sont **réutilisés tels quels** (aucune modif).
+
+### Principe
+La preview d'un document est générée **après chaque compilation réussie** (pas à chaque sauvegarde) : elle reflète l'état **compilé**, pas le brouillon en cours. À la modification des blocs, la preview existante passe `OUTDATED` mais reste affichée (badge « à recompiler » côté front) — **pas** de régénération auto : c'est l'utilisateur qui décide quand compiler.
+
+### Champs ajoutés à l'entité `Document`
+`previewImagePath` (PNG page 1, relatif), `previewGeneratedAt`, `previewStatus` (enum `PreviewStatus`, défaut `PENDING`). Colonnes créées par `ddl-auto` (pas de Flyway). `DocumentResponse` expose `previewImageUrl` (URL construite par `StorageService`, nullable) + `previewStatus`.
+
+### `DocumentPreviewService` (`service/`)
+- `onCompilationSuccess(documentId, pdfPath)` — **hook d'intégration** appelé par le futur pipeline de compilation : passe le statut à `GENERATING` puis déclenche la génération.
+- `generatePreviewAsync(documentId, pdfPath)` — **stub** `@Async` (remet `PENDING` en attendant). Flux prévu : `StorageService.load(pdf)` → PDFBox `renderImageWithDPI(0, 150)` → `ImageIO` PNG → `StorageService.store(...)` → statut `READY`. Dépendance à ajouter : `org.apache.pdfbox:pdfbox:3.0.x`.
+- `invalidatePreview(documentId)` — appelé par `DocumentService.update` quand `blocks` change ; `READY → OUTDATED` uniquement.
+- `deletePreviewFiles(document)` — à appeler avant une suppression **définitive** (le soft-delete actuel conserve les fichiers).
+
+> ⚠️ Le pipeline de compilation (entité `CompilationLog`, endpoint `compile`) **n'existe pas encore** — hors scope de cette feature. Le seul point de contact prévu est `onCompilationSuccess`, que le compilateur appellera en cas de succès.
+
+### Stockage
+`documents/previews/{documentId}/preview.png` — écrasé à chaque compilation réussie (pas d'accumulation). Servi via `/storage/**`.
+
+### Statuts (`PreviewStatus`, partagé avec les templates)
+`PENDING` (jamais compilé) · `OUTDATED` (blocs modifiés depuis — badge « à recompiler ») · `GENERATING` (extraction PNG en cours, polling front) · `READY` (à jour) · `ERROR` (extraction échouée).
+
+### Endpoint de polling
+`GET /api/documents/{id}/preview/status` → `DocumentResponse` (contient `previewStatus` + `previewImageUrl`). Réservé au propriétaire (via `findById`).
+
+---
+
 ## Planned Features (not yet implemented)
 
 - Création / édition de templates par l'utilisateur (templates non-système)
 
 - Compilateur LaTeX (tectonic) : implémenter `TemplatePreviewService.generatePreviewAsync` (blocks → `.tex` → tectonic → PDF → PNG via PDFBox) et appeler `invalidatePreview` sur modif des blocs / `deletePreviewFiles` à la suppression.
+
+- Pipeline de compilation des documents (entité `CompilationLog`, endpoint `POST /api/documents/{id}/compile`) qui appellera `DocumentPreviewService.onCompilationSuccess` ; implémenter `DocumentPreviewService.generatePreviewAsync` (extraction PNG page 1 via PDFBox).
 
 - Durcir la sécurité des previews PDF : remplacer `frameOptions.disable()` par une CSP `frame-ancestors` ciblée et resserrer l'accès public à `/templates/previews/**` et `/storage/**` (séparer previews publiques vs fichiers privés de documents).
 
