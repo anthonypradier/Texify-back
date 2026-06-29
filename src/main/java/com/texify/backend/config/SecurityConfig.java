@@ -4,6 +4,7 @@ import com.texify.backend.security.HttpCookieOAuth2AuthorizationRequestRepositor
 import com.texify.backend.security.JwtAuthenticationFilter;
 import com.texify.backend.security.OAuth2AuthenticationFailureHandler;
 import com.texify.backend.security.OAuth2AuthenticationSuccessHandler;
+import com.texify.backend.security.PublicModeGuardFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -46,6 +47,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final PublicModeGuardFilter publicModeGuardFilter;
     private final UserDetailsService userDetailsService;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
@@ -80,7 +82,10 @@ public class SecurityConfig {
                                 "/oauth2/authorization/**",
                                 "/login/oauth2/code/**",
                                 "/templates/previews/**",
-                                "/storage/**"
+                                "/storage/**",
+                                "/api/waitlist",
+                                "/api/health",
+                                "/api/health/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
@@ -95,6 +100,9 @@ public class SecurityConfig {
                         .failureHandler(oAuth2AuthenticationFailureHandler)
                 )
                 .authenticationProvider(authenticationProvider())
+                // Public-mode guard runs first: when app.public-mode=true it blocks
+                // everything except the waitlist/health whitelist. No-op otherwise.
+                .addFilterBefore(publicModeGuardFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

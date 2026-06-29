@@ -270,7 +270,8 @@ src/
 │   ├── java/com/texify/backend/
 │   │   ├── config/          # SecurityConfig, TemplateSeeder, StorageConfig
 │   │   ├── controller/      # AuthController, DocumentController, LabelController,
-│   │   │                    #   TemplateController, StorageController
+│   │   │                    #   TemplateController, StorageController,
+│   │   │                    #   WaitlistController, HealthController
 │   │   ├── dto/             # RegisterRequest, LoginRequest, AuthResponse,
 │   │   │                    #   UserResponse, ErrorResponse, MessageResponse,
 │   │   │                    #   ResendVerificationRequest, ForgotPasswordRequest,
@@ -279,21 +280,22 @@ src/
 │   │   │                    #   CreateLabelRequest, UpdateLabelRequest, LabelResponse,
 │   │   │                    #   TemplateResponse
 │   │   ├── entity/          # User, Role, AuthProvider, VerificationToken, TokenType,
-│   │   │                    #   Document, Label, Template, PreviewStatus
+│   │   │                    #   Document, Label, Template, PreviewStatus, WaitlistEntry
 │   │   ├── exception/       # GlobalExceptionHandler, EmailAlreadyExistsException,
 │   │   │                    #   InvalidVerificationTokenException,
 │   │   │                    #   DocumentNotFoundException, LabelNotFoundException,
 │   │   │                    #   TemplateNotFoundException, InvalidFileException, StorageException
 │   │   ├── repository/      # UserRepository, VerificationTokenRepository,
-│   │   │                    #   DocumentRepository, LabelRepository, TemplateRepository
-│   │   ├── security/        # JwtService, JwtAuthenticationFilter,
+│   │   │                    #   DocumentRepository, LabelRepository, TemplateRepository,
+│   │   │                    #   WaitlistRepository
+│   │   ├── security/        # JwtService, JwtAuthenticationFilter, PublicModeGuardFilter,
 │   │   │                    #   OAuth2AuthenticationSuccessHandler,
 │   │   │                    #   OAuth2AuthenticationFailureHandler,
 │   │   │                    #   HttpCookieOAuth2AuthorizationRequestRepository
 │   │   └── service/         # AuthService, UserDetailsServiceImpl, EmailService,
 │   │                        #   OAuth2UserService, DocumentService, DocumentPreviewService,
 │   │                        #   LabelService, TemplateService, TemplatePreviewService,
-│   │                        #   StorageService
+│   │                        #   StorageService, WaitlistService
 │   └── resources/
 │       └── application.yml
 └── test/
@@ -650,6 +652,58 @@ La preview d'un document est générée **après chaque compilation réussie** (
 
 ### Endpoint de polling
 `GET /api/documents/{id}/preview/status` → `DocumentResponse` (contient `previewStatus` + `previewImageUrl`). Réservé au propriétaire (via `findById`).
+
+---
+
+## Public (Landing) Mode — feature flag `app.public-mode`
+
+Permet de déployer en prod une **landing page publique** (capture d'emails / waitlist) pendant que le MVP est encore en développement, pour démarrer le référencement Google tôt. Le code du MVP reste **intact** ; on bascule via configuration.
+
+### Principe
+- Propriété `app.public-mode` (défaut **`false`**), surchargée par la variable d'env **`APP_PUBLIC_MODE`**.
+- `false` → application complète, comportement MVP inchangé.
+- `true` → **seuls** les endpoints whitelistés répondent ; **tout le reste renvoie `404`** (choisi plutôt que 403 pour ne pas révéler l'existence de l'API MVP).
+
+### Le verrou est réel, pas cosmétique
+`PublicModeGuardFilter` (`OncePerRequestFilter`, enregistré en tête de la chaîne Spring Security) bloque côté serveur **avant** d'atteindre le moindre contrôleur — impossible de contourner depuis le front. Quand `public-mode=false`, le filtre est un **no-op** complet.
+
+> Choix d'archi : un filtre centralisé plutôt que des `@ConditionalOnProperty` sur chaque contrôleur — une seule source de vérité, couvre tout (y compris ce qu'on oublierait d'annoter), et réversible instantanément par le flag.
+
+### Whitelist en mode public
+- `POST /api/waitlist` — capture d'email
+- `GET /api/health` — health check
+- requêtes `OPTIONS` (préflight CORS)
+
+Ces routes sont aussi `permitAll` dans `SecurityConfig` (publiques dans les **deux** modes).
+
+### Endpoint waitlist
+`POST /api/waitlist` — body `{ "email": "alice@example.com" }`. Email validé (`@Email`), normalisé (trim + minuscules), stocké dans `waitlist_entries` (colonne `email` **UNIQUE**).
+
+| Status | Meaning |
+|---|---|
+| `200 OK` | Email enregistré **ou** déjà présent — message générique (idempotent, ne fuite pas l'existence) |
+| `400 Bad Request` | Email manquant ou format invalide |
+
+Doublon géré proprement : `existsByEmail` + capture de `DataIntegrityViolationException` (race condition concurrente) → même résultat idempotent.
+
+**Schéma `waitlist_entries`** (créé par `ddl-auto`, pas de Flyway) :
+```sql
+id         BIGINT PK AUTO_INCREMENT
+email      VARCHAR(255) UNIQUE NOT NULL
+created_at DATETIME NOT NULL
+```
+
+### Activer / désactiver
+```bash
+# Prod — mode vitrine (landing seule)
+APP_PUBLIC_MODE=true
+
+# Jour du lancement — réactive tout le MVP, AUCUN autre changement ni migration
+APP_PUBLIC_MODE=false   # ou supprimer la variable (défaut false)
+```
+Un simple redémarrage avec la variable suffit ; rien d'autre à toucher.
+
+> Note prod : la `CorsConfigurationSource` autorise `http://localhost:5173`. Pour la landing déployée, ajouter l'origine du domaine public aux origins autorisés (hors périmètre de ce flag).
 
 ---
 

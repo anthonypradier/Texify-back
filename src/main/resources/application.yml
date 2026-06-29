@@ -62,6 +62,9 @@ jwt:
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  # Landing / showcase mode. When true, the backend only serves the waitlist
+  # and health endpoints; every other route returns 404. Default false = full MVP.
+  public-mode: ${APP_PUBLIC_MODE:false}
 
 logging:
   level:
